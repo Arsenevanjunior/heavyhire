@@ -1,0 +1,225 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  CLIENT
+  ADMIN
+}
+
+enum EquipmentCategory {
+  CONSTRUCTION
+  AGRICULTURAL
+  HEAVY_TRANSPORT
+  REFRIGERATED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum PaymentMethod {
+  MOBILE_MONEY
+  CARD
+  BANK_TRANSFER
+}
+
+enum PaymentStatus {
+  PENDING
+  HELD_ESCROW
+  RELEASED
+  REFUNDED
+  FAILED
+}
+
+enum DisputeStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  CLOSED
+}
+
+enum SubscriptionTier {
+  FREE
+  BASIC
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  password      String
+  role          Role     @default(CLIENT)
+  phone         String?
+  avatar        String?
+  isVerified    Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  language      String   @default("en")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  ownerProfile  OwnerProfile?
+  equipment     Equipment[]
+  bookings      Booking[]     @relation("ClientBookings")
+  reviewsGiven  Review[]      @relation("ReviewGiven")
+  reviewsReceived Review[]    @relation("ReviewReceived")
+  messagesSent  Message[]
+  disputesRaised Dispute[]
+}
+
+model OwnerProfile {
+  id               String           @id @default(cuid())
+  userId           String           @unique
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName     String?
+  nationalId       String?
+  licenseNumber    String?
+  address          String?
+  city             String?
+  country          String           @default("Rwanda")
+  walletBalance    Float            @default(0)
+  totalEarnings    Float            @default(0)
+  totalBookings    Int              @default(0)
+  subscriptionTier SubscriptionTier @default(FREE)
+  subscriptionEnds DateTime?
+  isBadgeVerified  Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+}
+
+model Equipment {
+  id            String            @id @default(cuid())
+  ownerId       String
+  owner         User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  title         String
+  category      EquipmentCategory
+  description   String
+  specs         Json              @default("{}")
+  pricePerDay   Float
+  pricePerWeek  Float?
+  pricePerMonth Float?
+  location      String
+  city          String
+  country       String            @default("Rwanda")
+  latitude      Float?
+  longitude     Float?
+  images        String[]
+  isAvailable   Boolean           @default(true)
+  isFeatured    Boolean           @default(false)
+  isApproved    Boolean           @default(false)
+  rating        Float             @default(0)
+  reviewCount   Int               @default(0)
+  viewCount     Int               @default(0)
+  minHireDays   Int               @default(1)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  bookings      Booking[]
+  reviews       Review[]
+  availability  Availability[]
+}
+
+model Availability {
+  id          String    @id @default(cuid())
+  equipmentId String
+  equipment   Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  date        DateTime
+  isBooked    Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+}
+
+model Booking {
+  id               String        @id @default(cuid())
+  equipmentId      String
+  equipment        Equipment     @relation(fields: [equipmentId], references: [id])
+  clientId         String
+  client           User          @relation("ClientBookings", fields: [clientId], references: [id])
+  startDate        DateTime
+  endDate          DateTime
+  totalDays        Int
+  subtotal         Float
+  commissionAmount Float
+  totalPrice       Float
+  status           BookingStatus @default(PENDING)
+  notes            String?
+  deliveryAddress  String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  payment   Payment?
+  review    Review?
+  messages  Message[]
+  dispute   Dispute?
+}
+
+model Payment {
+  id             String        @id @default(cuid())
+  bookingId      String        @unique
+  booking        Booking       @relation(fields: [bookingId], references: [id])
+  amount         Float
+  method         PaymentMethod
+  status         PaymentStatus @default(PENDING)
+  transactionRef String?
+  currency       String        @default("RWF")
+  paidAt         DateTime?
+  releasedAt     DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Review {
+  id          String    @id @default(cuid())
+  bookingId   String    @unique
+  booking     Booking   @relation(fields: [bookingId], references: [id])
+  equipmentId String
+  equipment   Equipment @relation(fields: [equipmentId], references: [id])
+  reviewerId  String
+  reviewer    User      @relation("ReviewGiven", fields: [reviewerId], references: [id])
+  targetId    String
+  target      User      @relation("ReviewReceived", fields: [targetId], references: [id])
+  rating      Int       @default(5)
+  comment     String?
+  createdAt   DateTime  @default(now())
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  bookingId String
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+  senderId  String
+  sender    User     @relation(fields: [senderId], references: [id])
+  content   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Dispute {
+  id          String        @id @default(cuid())
+  bookingId   String        @unique
+  booking     Booking       @relation(fields: [bookingId], references: [id])
+  raisedById  String
+  raisedBy    User          @relation(fields: [raisedById], references: [id])
+  reason      String
+  description String?
+  status      DisputeStatus @default(OPEN)
+  resolution  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
