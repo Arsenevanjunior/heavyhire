@@ -20,7 +20,11 @@ export default {
           800: "#075985",
           900: "#0c3d66",
         },
+        border: "hsl(var(--border))", 
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
       },
+      
     },
   },
   plugins: [],
