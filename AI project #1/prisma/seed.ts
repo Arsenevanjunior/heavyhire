@@ -34,7 +34,7 @@ async function main() {
             isVerified: true,
             ownerProfile: {
                 create: {
-                    businessName: "Habimana Heavy Equipment Ltd",
+                    businessName: " Heavy Equipment Ltd",
                     city: "Kigali",
                     country: "Rwanda",
                     walletBalance: 450000,
