@@ -42,3 +42,6 @@ prisma/migrations/
 .idea/
 *.sublime-project
 *.sublime-workspace
+
+# TypeScript
+*.tsbuildinfo

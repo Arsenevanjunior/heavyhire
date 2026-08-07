@@ -1,0 +1,37 @@
+import { z } from "zod";
+
+export const equipmentCategories = [
+  "CONSTRUCTION",
+  "AGRICULTURAL",
+  "HEAVY_TRANSPORT",
+  "REFRIGERATED",
+] as const;
+
+export const equipmentCreateSchema = z.object({
+  title: z.string().min(3).max(120),
+  category: z.enum(equipmentCategories),
+  description: z.string().min(10).max(5000),
+  specs: z.record(z.any()).optional(),
+  pricePerDay: z.number().positive(),
+  pricePerWeek: z.number().positive().nullable().optional(),
+  pricePerMonth: z.number().positive().nullable().optional(),
+  location: z.string().min(2).max(200),
+  city: z.string().min(2).max(100),
+  country: z.string().min(2).max(100).optional(),
+  latitude: z.number().nullable().optional(),
+  longitude: z.number().nullable().optional(),
+  images: z.array(z.string().url()).optional(),
+  minHireDays: z.number().int().positive().max(365).optional(),
+});
+
+export const equipmentUpdateSchema = equipmentCreateSchema.partial().extend({
+  isAvailable: z.boolean().optional(),
+});
+
+// Fields only an ADMIN may change.
+export const equipmentAdminOnlyFields = ["isApproved", "isFeatured"] as const;
+
+export const equipmentAdminUpdateSchema = z.object({
+  isApproved: z.boolean().optional(),
+  isFeatured: z.boolean().optional(),
+});
