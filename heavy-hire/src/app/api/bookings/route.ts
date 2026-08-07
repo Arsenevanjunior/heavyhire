@@ -20,7 +20,13 @@ export async function POST(request: NextRequest) {
       endDate,
       notes,
       deliveryAddress,
+      paymentMethod,
     } = body;
+
+    const allowedPaymentMethods = ["MOBILE_MONEY", "CARD", "BANK_TRANSFER"];
+    const safePaymentMethod = allowedPaymentMethods.includes(paymentMethod)
+      ? paymentMethod
+      : "MOBILE_MONEY";
 
     if (!equipmentId || !startDate || !endDate) {
       return NextResponse.json(
@@ -40,8 +46,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!equipment.isAvailable) {
+      return NextResponse.json(
+        { error: "This equipment is not currently available for booking" },
+        { status: 409 }
+      );
+    }
+
     const start = new Date(startDate);
     const end = new Date(endDate);
+
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+      return NextResponse.json(
+        { error: "Invalid date range" },
+        { status: 400 }
+      );
+    }
+
     const totalDays = Math.ceil(
       (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
     );
@@ -57,27 +78,58 @@ export async function POST(request: NextRequest) {
     const commissionAmount = subtotal * 0.1; // 10% commission
     const totalPrice = subtotal + commissionAmount;
 
-    const booking = await prisma.booking.create({
-      data: {
-        equipmentId,
-        clientId: user.id,
-        startDate: start,
-        endDate: end,
-        totalDays,
-        subtotal,
-        commissionAmount,
-        totalPrice,
-        notes: notes || null,
-        deliveryAddress: deliveryAddress || null,
-      },
-      include: {
-        equipment: true,
-        client: true,
-      },
+    // Re-check for overlaps and create the booking + its escrow payment record
+    // atomically so a concurrent request can't double-book the same equipment.
+    const booking = await prisma.$transaction(async (tx) => {
+      const conflicting = await tx.booking.findFirst({
+        where: {
+          equipmentId,
+          status: { in: ["PENDING", "CONFIRMED", "ACTIVE"] },
+          startDate: { lt: end },
+          endDate: { gt: start },
+        },
+      });
+
+      if (conflicting) {
+        throw new Error("BOOKING_CONFLICT");
+      }
+
+      return tx.booking.create({
+        data: {
+          equipmentId,
+          clientId: user.id,
+          startDate: start,
+          endDate: end,
+          totalDays,
+          subtotal,
+          commissionAmount,
+          totalPrice,
+          notes: notes || null,
+          deliveryAddress: deliveryAddress || null,
+          payment: {
+            create: {
+              amount: totalPrice,
+              method: safePaymentMethod,
+              status: "PENDING",
+            },
+          },
+        },
+        include: {
+          equipment: true,
+          client: true,
+          payment: true,
+        },
+      });
     });
 
     return NextResponse.json(booking, { status: 201 });
   } catch (error) {
+    if (error instanceof Error && error.message === "BOOKING_CONFLICT") {
+      return NextResponse.json(
+        { error: "Equipment is already booked for part of this date range" },
+        { status: 409 }
+      );
+    }
     console.error("Error creating booking:", error);
     return NextResponse.json(
       { error: "Failed to create booking" },
@@ -97,10 +149,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const asOwner = request.nextUrl.searchParams.get("as") === "owner";
+
     const bookings = await prisma.booking.findMany({
-      where: {
-        clientId: user.id,
-      },
+      where: asOwner
+        ? { equipment: { ownerId: user.id } }
+        : { clientId: user.id },
       include: {
         equipment: {
           include: {
@@ -111,6 +165,9 @@ export async function GET(request: NextRequest) {
               },
             },
           },
+        },
+        client: {
+          select: { name: true, email: true, phone: true },
         },
         payment: true,
         review: true,

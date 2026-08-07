@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 
 interface EquipmentDetail {
@@ -27,12 +28,28 @@ interface EquipmentDetail {
   };
 }
 
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function addDaysISO(dateISO: string, days: number) {
+  const d = new Date(dateISO);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 export default function EquipmentDetailPage() {
   const params = useParams();
+  const router = useRouter();
+  const { status } = useSession();
   const id = params?.id as string;
   const [equipment, setEquipment] = useState<EquipmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedDays, setSelectedDays] = useState(1);
+  const [startDate, setStartDate] = useState(todayISO());
+  const [endDate, setEndDate] = useState(addDaysISO(todayISO(), 1));
+  const [booking, setBooking] = useState(false);
+  const [bookingError, setBookingError] = useState("");
+  const [bookingSuccess, setBookingSuccess] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -73,7 +90,48 @@ export default function EquipmentDetailPage() {
     );
   }
 
+  const selectedDays = Math.max(
+    1,
+    Math.ceil(
+      (new Date(endDate).getTime() - new Date(startDate).getTime()) /
+        (1000 * 60 * 60 * 24)
+    )
+  );
   const totalPrice = equipment.pricePerDay * selectedDays;
+
+  const handleBook = async () => {
+    if (status !== "authenticated") {
+      router.push("/auth/login");
+      return;
+    }
+
+    setBooking(true);
+    setBookingError("");
+
+    try {
+      const res = await fetch("/api/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          equipmentId: equipment.id,
+          startDate,
+          endDate,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to create booking");
+      }
+
+      setBookingSuccess(true);
+    } catch (err: any) {
+      setBookingError(err.message);
+    } finally {
+      setBooking(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -176,39 +234,87 @@ export default function EquipmentDetailPage() {
                 </div>
               </div>
 
-              {/* Duration Selector */}
-              <div className="mb-6">
-                <label className="block text-sm font-semibold text-gray-900 mb-2">
-                  Duration (days)
-                </label>
-                <input
-                  type="number"
-                  min={equipment.minHireDays}
-                  value={selectedDays}
-                  onChange={(e) => setSelectedDays(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                />
+              {/* Date Range Selector */}
+              <div className="mb-6 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">
+                    Start date
+                  </label>
+                  <input
+                    type="date"
+                    min={todayISO()}
+                    value={startDate}
+                    onChange={(e) => {
+                      setStartDate(e.target.value);
+                      if (endDate <= e.target.value) {
+                        setEndDate(addDaysISO(e.target.value, 1));
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">
+                    End date
+                  </label>
+                  <input
+                    type="date"
+                    min={addDaysISO(startDate, 1)}
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
               </div>
 
               {/* Total */}
               <div className="border-t border-gray-200 pt-6 mb-6">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-700">
-                    {equipment.pricePerDay.toLocaleString()} × {selectedDays} days
+                    {equipment.pricePerDay.toLocaleString()} × {selectedDays} day
+                    {selectedDays > 1 ? "s" : ""}
                   </span>
                   <span className="font-semibold">
                     {totalPrice.toLocaleString()} RWF
                   </span>
                 </div>
+                {selectedDays < equipment.minHireDays && (
+                  <p className="text-sm text-red-600 mt-2">
+                    Minimum hire is {equipment.minHireDays} day
+                    {equipment.minHireDays > 1 ? "s" : ""}
+                  </p>
+                )}
               </div>
 
               {/* CTA */}
-              <Link
-                href="/auth/login"
-                className="block w-full py-3 bg-primary-600 text-white rounded-lg font-semibold text-center hover:bg-primary-700 transition mb-3"
-              >
-                Book Now
-              </Link>
+              {bookingSuccess ? (
+                <div className="mb-3 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+                  ✓ Booking request sent! Check your{" "}
+                  <Link href="/dashboard" className="font-semibold underline">
+                    dashboard
+                  </Link>{" "}
+                  for status.
+                </div>
+              ) : (
+                <>
+                  {bookingError && (
+                    <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                      {bookingError}
+                    </div>
+                  )}
+                  <button
+                    onClick={handleBook}
+                    disabled={booking || selectedDays < equipment.minHireDays}
+                    className="block w-full py-3 bg-primary-600 text-white rounded-lg font-semibold text-center hover:bg-primary-700 transition mb-3 disabled:opacity-50"
+                  >
+                    {booking
+                      ? "Booking..."
+                      : status === "authenticated"
+                      ? "Book Now"
+                      : "Sign in to Book"}
+                  </button>
+                </>
+              )}
               <button className="w-full py-3 border-2 border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50 transition">
                 Contact Owner
               </button>

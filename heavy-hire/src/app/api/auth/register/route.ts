@@ -18,14 +18,17 @@ export async function POST(request: NextRequest) {
 
         const hashed = await bcrypt.hash(password, 12);
 
+        // Only CLIENT/OWNER are self-selectable; ADMIN can never come from request input.
+        const safeRole = role === "OWNER" ? "OWNER" : "CLIENT";
+
         const user = await prisma.user.create({
             data: {
                 name,
                 email,
                 password: hashed,
                 phone,
-                role: role || "CLIENT",
-                ...(role === "OWNER" && {
+                role: safeRole,
+                ...(safeRole === "OWNER" && {
                     ownerProfile: {
                         create: {
                             businessName: businessName || name,
